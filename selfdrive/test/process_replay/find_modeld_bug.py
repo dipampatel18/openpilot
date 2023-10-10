@@ -19,7 +19,7 @@ from openpilot.tools.lib.helpers import save_log
 
 TEST_ROUTE = "2f4452b03ccb98f0|2022-12-03--13-45-30"
 SEGMENT = 6
-MAX_FRAMES = 5
+MAX_FRAMES = 600
 NAV_FRAMES = 50
 
 NO_NAV = "NO_NAV" in os.environ
@@ -52,15 +52,19 @@ def trim_logs_to_max_frames(logs, max_frames, frs_types, include_all_types):
 def model_replay(lr, frs):
   # modeld is using frame pairs
   modeld_logs = trim_logs_to_max_frames(lr, MAX_FRAMES, {"roadCameraState", "wideRoadCameraState"}, {"roadEncodeIdx", "wideRoadEncodeIdx"})
+  dmodeld_logs = trim_logs_to_max_frames(lr, MAX_FRAMES, {"driverCameraState"}, {"driverEncodeIdx"})
+
   # initial calibration
   cal_msg = next(msg for msg in lr if msg.which() == "liveCalibration").as_builder()
   cal_msg.logMonoTime = lr[0].logMonoTime
   modeld_logs.insert(0, cal_msg.as_reader())
 
   modeld = get_process_config("modeld")
+  dmonitoringmodeld = get_process_config("dmonitoringmodeld")
 
   modeld_msgs = replay_process(modeld, modeld_logs, frs)
-  return modeld_msgs
+  dmonitoringmodeld_msgs = replay_process(dmonitoringmodeld, dmodeld_logs, frs)
+  return modeld_msgs + dmonitoringmodeld_msgs
 
 
 if __name__ == "__main__":
@@ -75,12 +79,32 @@ if __name__ == "__main__":
     'wideRoadCameraState': FrameReader(get_url(TEST_ROUTE, SEGMENT, log_type="ecamera"), readahead=True)
   }
 
+
+  import numpy as np
+
   # run replays
   raw_preds_prev = None
+  raw_dmon_preds_prev = None
+  cnt = 0
   while True:
     log_msgs = model_replay(lr, frs)
     raw_preds = [msg.modelV2.rawPredictions for msg in log_msgs if msg.which() == "modelV2"]
+    raw_dmon_preds = [msg.driverStateV2.rawPredictions for msg in log_msgs if msg.which() == "driverStateV2"]
     if raw_preds_prev is not None:
       for i in range(len(raw_preds)):
-        assert raw_preds[i] == raw_preds_prev[i]
+        assert len(raw_preds[i]) > 0
+        a = np.frombuffer(raw_preds[i], dtype=np.int8)
+        b = np.frombuffer(raw_preds_prev[i], dtype=np.int8)
+        assert np.all(a == b)
+        assert max(a-b) == 0
+        cnt += 1
+    if raw_dmon_preds_prev is not None:
+      for i in range(len(raw_dmon_preds)):
+          assert len(raw_dmon_preds[i]) > 0
+          a = np.frombuffer(raw_dmon_preds[i], dtype=np.int8)
+          b = np.frombuffer(raw_dmon_preds_prev[i], dtype=np.int8)
+          assert np.all(a == b)
+          assert max(a-b) == 0
     raw_preds_prev = raw_preds
+    raw_dmon_preds_prev = raw_dmon_preds
+  print(f'FAILED AFTER {cnt} ATTEMPTS')
