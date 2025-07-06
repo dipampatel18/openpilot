@@ -101,6 +101,23 @@ void BodyWindow::paintEvent(QPaintEvent *event) {
 
   // battery level
   double fuel = std::clamp(fuel_filter.x(), 0.2f, 1.0f);
+
+  // battery percentage text
+  int battery_percent = std::round(fuel * 100);
+  QFont font = p.font();
+  font.setPointSize(24);
+  font.setBold(true);
+  p.setFont(font);
+
+  QColor textColor = Qt::white;
+  if (fuel <= 0.25) textColor = QColor("#FF453A");
+  p.setPen(textColor);
+
+  // position left of battery icon
+  QString percent_text = QString::number(battery_percent) + "%";
+  p.drawText(-10 - p.fontMetrics().horizontalAdvance(percent_text), 32, percent_text);
+
+  // battery bar
   const int m = 5; // manual margin since we can't do an inner border
   p.setPen(Qt::NoPen);
   p.setBrush(fuel > 0.25 ? QColor("#32D74B") : QColor("#FF453A"));
